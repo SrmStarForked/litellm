@@ -319,6 +319,33 @@ class AnthropicConfig(BaseConfig):
         else:
             raise ValueError(f"Unmapped reasoning effort: {reasoning_effort}")
 
+    def map_response_format_to_anthropic_tool(
+        self, value: Optional[dict], optional_params: dict, is_thinking_enabled: bool
+    ) -> Optional[AnthropicMessagesTool]:
+        ignore_response_format_types = ["text"]
+        if (
+            value is None or value["type"] in ignore_response_format_types
+        ):  # value is a no-op
+            return None
+
+        json_schema: Optional[dict] = None
+        if "response_schema" in value:
+            json_schema = value["response_schema"]
+        elif "json_schema" in value:
+            json_schema = value["json_schema"]["schema"]
+        """
+        When using tools in this way: - https://docs.anthropic.com/en/docs/build-with-claude/tool-use#json-mode
+        - You usually want to provide a single tool
+        - You should set tool_choice (see Forcing tool use) to instruct the model to explicitly use that tool
+        - Remember that the model will pass the input to the tool, so the name of the tool and description should be from the model’s perspective.
+        """
+
+        _tool = self._create_json_tool_call_for_response_format(
+            json_schema=json_schema,
+        )
+
+        return _tool
+
     def map_openai_params(
         self,
         non_default_params: dict,
@@ -362,34 +389,18 @@ class AnthropicConfig(BaseConfig):
             if param == "top_p":
                 optional_params["top_p"] = value
             if param == "response_format" and isinstance(value, dict):
-                ignore_response_format_types = ["text"]
-                if value["type"] in ignore_response_format_types:  # value is a no-op
+                _tool = self.map_response_format_to_anthropic_tool(
+                    value, optional_params, is_thinking_enabled
+                )
+                if _tool is None:
                     continue
-
-                json_schema: Optional[dict] = None
-                if "response_schema" in value:
-                    json_schema = value["response_schema"]
-                elif "json_schema" in value:
-                    json_schema = value["json_schema"]["schema"]
-                """
-                When using tools in this way: - https://docs.anthropic.com/en/docs/build-with-claude/tool-use#json-mode
-                - You usually want to provide a single tool
-                - You should set tool_choice (see Forcing tool use) to instruct the model to explicitly use that tool
-                - Remember that the model will pass the input to the tool, so the name of the tool and description should be from the model’s perspective.
-                """
-
                 if not is_thinking_enabled:
                     _tool_choice = {"name": RESPONSE_FORMAT_TOOL_NAME, "type": "tool"}
                     optional_params["tool_choice"] = _tool_choice
-
-                _tool = self._create_json_tool_call_for_response_format(
-                    json_schema=json_schema,
-                )
+                optional_params["json_mode"] = True
                 optional_params = self._add_tools_to_optional_params(
                     optional_params=optional_params, tools=[_tool]
                 )
-
-                optional_params["json_mode"] = True
             if param == "user":
                 optional_params["metadata"] = {"user_id": value}
             if param == "thinking":
@@ -671,6 +682,45 @@ class AnthropicConfig(BaseConfig):
                     reasoning_content += block["thinking"]
         return text_content, citations, thinking_blocks, reasoning_content, tool_calls
 
+    def calculate_usage(
+        self, usage_object: dict, reasoning_content: Optional[str]
+    ) -> Usage:
+        prompt_tokens = usage_object.get("input_tokens", 0)
+        completion_tokens = usage_object.get("output_tokens", 0)
+        _usage = usage_object
+        cache_creation_input_tokens: int = 0
+        cache_read_input_tokens: int = 0
+
+        if "cache_creation_input_tokens" in _usage:
+            cache_creation_input_tokens = _usage["cache_creation_input_tokens"]
+        if "cache_read_input_tokens" in _usage:
+            cache_read_input_tokens = _usage["cache_read_input_tokens"]
+            prompt_tokens += cache_read_input_tokens
+
+        prompt_tokens_details = PromptTokensDetailsWrapper(
+            cached_tokens=cache_read_input_tokens
+        )
+        completion_token_details = (
+            CompletionTokensDetailsWrapper(
+                reasoning_tokens=token_counter(
+                    text=reasoning_content, count_response_tokens=True
+                )
+            )
+            if reasoning_content
+            else None
+        )
+        total_tokens = prompt_tokens + completion_tokens
+        usage = Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
+            prompt_tokens_details=prompt_tokens_details,
+            cache_creation_input_tokens=cache_creation_input_tokens,
+            cache_read_input_tokens=cache_read_input_tokens,
+            completion_tokens_details=completion_token_details,
+        )
+        return usage
+
     def transform_response(
         self,
         model: str,
@@ -761,45 +811,14 @@ class AnthropicConfig(BaseConfig):
             )
 
         ## CALCULATING USAGE
-        prompt_tokens = completion_response["usage"]["input_tokens"]
-        completion_tokens = completion_response["usage"]["output_tokens"]
-        _usage = completion_response["usage"]
-        cache_creation_input_tokens: int = 0
-        cache_read_input_tokens: int = 0
+        usage = self.calculate_usage(
+            usage_object=completion_response["usage"],
+            reasoning_content=reasoning_content,
+        )
+        setattr(model_response, "usage", usage)  # type: ignore
 
         model_response.created = int(time.time())
         model_response.model = completion_response["model"]
-        if "cache_creation_input_tokens" in _usage:
-            cache_creation_input_tokens = _usage["cache_creation_input_tokens"]
-            prompt_tokens += cache_creation_input_tokens
-        if "cache_read_input_tokens" in _usage:
-            cache_read_input_tokens = _usage["cache_read_input_tokens"]
-            prompt_tokens += cache_read_input_tokens
-
-        prompt_tokens_details = PromptTokensDetailsWrapper(
-            cached_tokens=cache_read_input_tokens
-        )
-        completion_token_details = (
-            CompletionTokensDetailsWrapper(
-                reasoning_tokens=token_counter(
-                    text=reasoning_content, count_response_tokens=True
-                )
-            )
-            if reasoning_content
-            else None
-        )
-        total_tokens = prompt_tokens + completion_tokens
-        usage = Usage(
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            prompt_tokens_details=prompt_tokens_details,
-            cache_creation_input_tokens=cache_creation_input_tokens,
-            cache_read_input_tokens=cache_read_input_tokens,
-            completion_tokens_details=completion_token_details,
-        )
-
-        setattr(model_response, "usage", usage)  # type: ignore
 
         model_response._hidden_params = _hidden_params
         return model_response
@@ -857,6 +876,7 @@ class AnthropicConfig(BaseConfig):
         model: str,
         messages: List[AllMessageValues],
         optional_params: dict,
+        litellm_params: dict,
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
     ) -> Dict:
