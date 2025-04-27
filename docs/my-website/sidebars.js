@@ -69,6 +69,7 @@ const sidebars = {
             "proxy/clientside_auth",
             "proxy/request_headers",
             "proxy/response_headers",
+            "proxy/model_discovery",
           ],
         },
         {
@@ -101,9 +102,17 @@ const sidebars = {
             "proxy/admin_ui_sso",
             "proxy/self_serve",
             "proxy/public_teams",
+            "tutorials/scim_litellm",
             "proxy/custom_sso",
             "proxy/ui_credentials",
-            "proxy/ui_logs"
+            {
+              type: "category",
+              label: "UI Logs",
+              items: [
+                "proxy/ui_logs",
+                "proxy/ui_logs_sessions"
+              ]
+            }
           ],
         },
         {
@@ -188,7 +197,7 @@ const sidebars = {
         "providers/azure_ai",
         "providers/aiml",
         "providers/vertex",
-        
+
         {
           type: "category",
           label: "Google AI Studio",
@@ -330,6 +339,8 @@ const sidebars = {
             "pass_through/vertex_ai",
             "pass_through/google_ai_studio",
             "pass_through/cohere",
+            "pass_through/vllm",
+            "pass_through/mistral",
             "pass_through/openai_passthrough",
             "pass_through/anthropic_completion",
             "pass_through/bedrock",
@@ -340,7 +351,7 @@ const sidebars = {
         },
         "rerank",
         "assistants",
-        
+
         {
           type: "category",
           label: "/files",
@@ -407,9 +418,10 @@ const sidebars = {
       type: "category",
       label: "Logging & Observability",
       items: [
+        "observability/agentops_integration",
+        "observability/langfuse_integration",
         "observability/lunary_integration",
         "observability/mlflow",
-        "observability/langfuse_integration",
         "observability/gcs_bucket_integration",
         "observability/langsmith_integration",
         "observability/literalai_integration",
@@ -443,7 +455,9 @@ const sidebars = {
       label: "Tutorials",
       items: [
         "tutorials/openweb_ui",
+        "tutorials/openai_codex",
         "tutorials/msft_sso",
+        "tutorials/prompt_caching",
         "tutorials/tag_management",
         'tutorials/litellm_proxy_aporia',
         {
