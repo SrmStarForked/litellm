@@ -35,7 +35,6 @@ services:
  
   db:
     image: docker.io/postgres:16
-    restart: always
     environment:
       POSTGRES_DB: litellm
       POSTGRES_USER: llmproxy
@@ -65,7 +64,6 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=15d'
-    restart: always
 
 volumes:
   prometheus_data:
